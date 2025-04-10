@@ -1,0 +1,6 @@
+Linux: alumno/alumno
+Oracle: sys/1234
+Oracle: system/1234
+Oracle: hr/hr
+APEX Admin: admin/Abd2023*
+
