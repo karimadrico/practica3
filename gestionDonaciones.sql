@@ -126,19 +126,17 @@ END;
 create or replace procedure realizarDonacion(
     p_nif in varchar2, 
     p_cantidad in number, 
-    p_id_tipo_sangre in number) is
-
+    p_id_tipo_sangre in number
+) is
     v_nif donante.nif%type;
-    v_stock reserva_hospital.cantidad%type;
     v_id_tipo_sangre donante.id_tipo_sangre%type;
-
+    v_stock reserva_hospital.cantidad%type;
 begin
-    -- Verificar si el donante existe
+    -- Verificar si el donante existe y obtener su tipo de sangre
     begin
         select nif, id_tipo_sangre into v_nif, v_id_tipo_sangre
         from donante
         where nif = p_nif;
-        
     exception
         when no_data_found then
             raise_application_error(-20003, 'El donante con NIF ' || p_nif || ' no existe.');
@@ -146,30 +144,38 @@ begin
             raise;
     end;
 
-    -- Verificar si hay suficiente cantidad de sangre en la reserva (utilizando el tipo de sangre del donante)
+    -- Verificar si el tipo de sangre del donante coincide con el proporcionado
+    if v_id_tipo_sangre != p_id_tipo_sangre then
+        raise_application_error(-20006, 'Tipo de sangre no coincide con el registrado para el donante.');
+    end if;
+
+    -- Verificar si hay suficiente sangre en la reserva
     begin
         select cantidad into v_stock
         from reserva_hospital
-        where id_tipo_sangre = v_id_tipo_sangre and cantidad >= p_cantidad;
+        where id_tipo_sangre = p_id_tipo_sangre
+        and cantidad >= p_cantidad;
     exception
         when no_data_found then
-            raise_application_error(-20004, 'No hay suficiente sangre de tipo ' || v_id_tipo_sangre || '.');
+            raise_application_error(-20004, 'No hay suficiente sangre de tipo ' || p_id_tipo_sangre || '.');
         when others then
             raise;
     end;
 
-    -- Realizar la donación
-    insert into donacion (nif_donante, cantidad, fecha_donacion, id_tipo_sangre) 
-    values (p_nif, p_cantidad, trunc(sysdate), v_id_tipo_sangre);
+    -- Insertar la donación (sin id_tipo_sangre, porque no existe esa columna)
+    insert into donacion (id_donacion, nif_donante, cantidad, fecha_donacion)
+    values (seq_donacion.nextval, p_nif, p_cantidad, trunc(sysdate));
 
     -- Actualizar la reserva de sangre
     update reserva_hospital 
     set cantidad = cantidad - p_cantidad
-    where id_tipo_sangre = v_id_tipo_sangre;
-    
-    commit;
+    where id_tipo_sangre = p_id_tipo_sangre;
 
+    commit;
 end;
+/
+
+
 
 -- Procedimiento reset_seq
 create or replace procedure reset_seq( p_seq_name varchar ) is
