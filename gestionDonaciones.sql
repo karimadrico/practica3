@@ -144,63 +144,54 @@ END;
 /
 
 --Procedimiento realizar donacion
-CREATE OR REPLACE PROCEDURE realizarDonacion (
-    m_NIF_donante IN donante.NIF%TYPE,
-    m_cantidad    IN donacion.cantidad%TYPE,
-    m_hospital    IN hospital.id_hospital%TYPE
+CREATE OR REPLACE PROCEDURE realizarDonacion(
+    m_NIF_donante donacion.nif_donante%TYPE,
+    m_cantidad donacion.cantidad%TYPE
 ) IS
-    v_tipo_sangre donante.id_tipo_sangre%TYPE;
-    v_fecha_ultima donacion.fecha_donacion%TYPE;
     v_existe NUMBER;
+    v_fecha_ultima_donacion DATE;
 BEGIN
-    SELECT COUNT(*) INTO v_existe FROM donante WHERE NIF = m_NIF_donante;
+    DBMS_OUTPUT.PUT_LINE('Iniciando realizarDonacion...');
+
+    -- Validar existencia del donante
+    SELECT COUNT(*) INTO v_existe FROM donante WHERE nif = m_NIF_donante;
+    DBMS_OUTPUT.PUT_LINE('Validación donante, encontrado: ' || v_existe);
     IF v_existe = 0 THEN
+        DBMS_OUTPUT.PUT_LINE('Donante no encontrado: ' || m_NIF_donante);
         RAISE_APPLICATION_ERROR(-20001, 'Donante Inexistente');
     END IF;
 
-    SELECT id_tipo_sangre INTO v_tipo_sangre FROM donante WHERE NIF = m_NIF_donante;
-
-    SELECT COUNT(*) INTO v_existe FROM tipo_sangre WHERE id_tipo_sangre = v_tipo_sangre;
-    IF v_existe = 0 THEN
-        RAISE_APPLICATION_ERROR(-20002, 'Tipo Sangre Inexistente');
-    END IF;
-
-    SELECT COUNT(*) INTO v_existe FROM hospital WHERE id_hospital = m_hospital;
-    IF v_existe = 0 THEN
-        RAISE_APPLICATION_ERROR(-20003, 'Hospital Inexistente');
-    END IF;
-
+    -- Validar cantidad > 0 y <= 0.45
+    DBMS_OUTPUT.PUT_LINE('Validando cantidad: ' || m_cantidad);
     IF m_cantidad <= 0 OR m_cantidad > 0.45 THEN
-        RAISE_APPLICATION_ERROR(-20005, 'Valor de cantidad de donación incorrecto');
+        DBMS_OUTPUT.PUT_LINE('Cantidad inválida');
+        RAISE_APPLICATION_ERROR(-20005, 'Cantidad inválida');
     END IF;
 
+    -- Verificar última donación (mínimo 15 días entre donaciones)
     BEGIN
-        SELECT MAX(fecha_donacion) INTO v_fecha_ultima FROM donacion WHERE nif_donante = m_NIF_donante;
-        IF v_fecha_ultima > SYSDATE - 15 THEN
-            RAISE_APPLICATION_ERROR(-20006, 'Donante excede el cupo de donación');
+        SELECT MAX(fecha_donacion) INTO v_fecha_ultima_donacion
+        FROM donacion
+        WHERE nif_donante = m_NIF_donante;
+
+        DBMS_OUTPUT.PUT_LINE('Última donación fue el: ' || TO_CHAR(v_fecha_ultima_donacion, 'DD/MM/YYYY'));
+
+        IF v_fecha_ultima_donacion IS NOT NULL AND v_fecha_ultima_donacion > SYSDATE - 15 THEN
+            DBMS_OUTPUT.PUT_LINE('Donación demasiado reciente');
+            RAISE_APPLICATION_ERROR(-20006, 'Donación demasiado reciente');
         END IF;
     EXCEPTION
-        WHEN NO_DATA_FOUND THEN NULL;
+        WHEN NO_DATA_FOUND THEN
+            NULL; -- No hay donaciones previas
     END;
 
+    -- Insertar donación si pasa todas las validaciones
     INSERT INTO donacion (id_donacion, nif_donante, cantidad, fecha_donacion)
     VALUES (seq_donacion.NEXTVAL, m_NIF_donante, m_cantidad, SYSDATE);
-
-    MERGE INTO reserva_hospital r
-    USING (SELECT m_hospital AS id_hospital, v_tipo_sangre AS id_tipo_sangre FROM dual) src
-    ON (r.id_hospital = src.id_hospital AND r.id_tipo_sangre = src.id_tipo_sangre)
-    WHEN MATCHED THEN
-        UPDATE SET cantidad = cantidad + m_cantidad
-    WHEN NOT MATCHED THEN
-        INSERT (id_hospital, id_tipo_sangre, cantidad) VALUES (m_hospital, v_tipo_sangre, m_cantidad);
-
-    COMMIT;
-EXCEPTION
-    WHEN OTHERS THEN
-        ROLLBACK;
-        RAISE;
+    DBMS_OUTPUT.PUT_LINE('Donación insertada correctamente.');
 END;
-/
+
+
 
 
 
@@ -227,72 +218,59 @@ end;
 /
 
 -- Procedimiento inicializa_test
-create or replace procedure inicializa_test is
-    sangre_a tipo_sangre.id_tipo_sangre%type;
-    sangre_b tipo_sangre.id_tipo_sangre%type;
-    sangre_ab tipo_sangre.id_tipo_sangre%type;
-    sangre_o tipo_sangre.id_tipo_sangre%type;
-begin
-    reset_seq( 'seq_tipo_sangre' );
-    reset_seq( 'seq_hospital' );
-    reset_seq( 'seq_traspaso' );
-    reset_seq('seq_donacion');
-    
-    delete from traspaso;
-    delete from reserva_hospital;
-    delete from donacion;
-    delete from donante;
-    delete from tipo_sangre;
-    delete from hospital;
-    
-    
-    insert into tipo_sangre values (seq_tipo_sangre.nextval, 'Tipo A');
-    sangre_a := seq_tipo_sangre.currval;
-    insert into tipo_sangre values (seq_tipo_sangre.nextval, 'Tipo B');
-    sangre_b := seq_tipo_sangre.currval;
-    insert into tipo_sangre values (seq_tipo_sangre.nextval, 'Tipo AB');
-    sangre_ab := seq_tipo_sangre.currval;
-    insert into tipo_sangre values (seq_tipo_sangre.nextval, 'Tipo O');
-    sangre_o := seq_tipo_sangre.currval;
-    
-    insert into hospital values (seq_hospital.nextval, 'Complejo Asistencial de Avila', 'Avila');
-    insert into reserva_hospital values (sangre_a, seq_hospital.currval, 3.45);
-    insert into reserva_hospital values (sangre_b, seq_hospital.currval, 2.5);
-    insert into reserva_hospital values (sangre_ab, seq_hospital.currval, 5.82);
-    insert into reserva_hospital values (sangre_o, seq_hospital.currval, 2.6);
-    
-    insert into hospital values (seq_hospital.nextval, 'Hospital Santos Reyes de Aranda de Duero', 'Aranda Duero');
-    insert into reserva_hospital values (sangre_a, seq_hospital.currval, 2.45);
-    insert into reserva_hospital values (sangre_b, seq_hospital.currval, 1.5);
-    insert into reserva_hospital values (sangre_ab, seq_hospital.currval, 0.82);
-    
-    insert into hospital values (seq_hospital.nextval, 'Complejo Asistencial Univesitario de Leon', 'Leon');
-    insert into reserva_hospital values (sangre_a, seq_hospital.currval, 6.52);
-    insert into reserva_hospital values (sangre_b, seq_hospital.currval, 5.7);
-    insert into reserva_hospital values (sangre_ab, seq_hospital.currval, 10.26);
-    insert into reserva_hospital values (sangre_o, seq_hospital.currval, 8.64);
-    
-    insert into hospital values (seq_hospital.nextval, 'Complejo Asistencial Universitario de Palencia', 'Palencia');
-    insert into reserva_hospital values (sangre_ab, seq_hospital.currval, 3.61);
-    insert into reserva_hospital values (sangre_o, seq_hospital.currval, 1.91);
-    
-    insert into donante values ('12345678A', 'Juan', 'Garcia', 'Porras', to_date('24/03/1983', 'DD/MM/YYYY'), sangre_a);
-    insert into donante values ('77777777B', 'Lucia', 'Rodriguez', 'Martin', to_date('12/04/1963', 'DD/MM/YYYY'), sangre_a);
-    insert into donante values ('98989898C', 'Maria', 'Fernandez', 'Dominguez', to_date('01/12/1977', 'DD/MM/YYYY'), sangre_o);
-    insert into donante values ('98765432Y', 'Alba', 'Serrano', 'Garcia', to_date('09/06/1997', 'DD/MM/YYYY'), sangre_ab);
-    
-    insert into donacion values (seq_donacion.nextval, '12345678A', 0.25, to_date('10/01/2025', 'DD/MM/YYYY') );
-    insert into donacion values (seq_donacion.nextval, '12345678A', 0.40, to_date('15/01/2025', 'DD/MM/YYYY') );
-    insert into donacion values (seq_donacion.nextval, '77777777B', 0.35, to_date('15/01/2025', 'DD/MM/YYYY') );
-    insert into donacion values (seq_donacion.nextval, '98989898C', 0.25, to_date('25/01/2025', 'DD/MM/YYYY') );
-    insert into donacion values (seq_donacion.nextval, '98765432Y', 0.35, to_date('25/01/2025', 'DD/MM/YYYY') );
-    
-    insert into traspaso values (seq_traspaso.nextval, 1, 1, 2, 20, to_date('11/01/2025', 'DD/MM/YYYY') );
-    insert into traspaso values (seq_traspaso.nextval, 2, 1, 2, 30, to_date('11/01/2025', 'DD/MM/YYYY') );
-    insert into traspaso values (seq_traspaso.nextval, 3, 1, 2, 10, to_date('11/01/2025', 'DD/MM/YYYY') );
-    insert into traspaso values (seq_traspaso.nextval, 4, 1, 3, 15, to_date('11/01/2025', 'DD/MM/YYYY') );
-end;
-/
+CREATE OR REPLACE PROCEDURE inicializa_test IS
+    -- Definición de las constantes para los tipos de sangre
+    sangre_a CONSTANT NUMBER := 1;
+    sangre_b CONSTANT NUMBER := 2;
+    sangre_o CONSTANT NUMBER := 3;
+    sangre_ab CONSTANT NUMBER := 4;
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('Iniciando inicializa_test...');
+
+    -- Primero, insertar los hospitales
+    INSERT INTO hospital (id_hospital, nombre, localidad) 
+    VALUES (seq_hospital.nextval, 'Complejo Asistencial de Avila', 'Avila');
+    INSERT INTO hospital (id_hospital, nombre, localidad) 
+    VALUES (seq_hospital.nextval, 'Hospital Santos Reyes de Aranda de Duero', 'Aranda Duero');
+    INSERT INTO hospital (id_hospital, nombre, localidad) 
+    VALUES (seq_hospital.nextval, 'Complejo Asistencial Univesitario de Leon', 'Leon');
+    INSERT INTO hospital (id_hospital, nombre, localidad) 
+    VALUES (seq_hospital.nextval, 'Complejo Asistencial Universitario de Palencia', 'Palencia');
+
+    -- Los registros de reserva de hospitales (sangre_a, sangre_b, etc.)
+    INSERT INTO reserva_hospital (id_tipo_sangre, id_hospital, cantidad) 
+    VALUES (sangre_a, seq_hospital.currval, 3.45);   -- Uso de ID real
+    INSERT INTO reserva_hospital (id_tipo_sangre, id_hospital, cantidad) 
+    VALUES (sangre_b, seq_hospital.currval, 2.5);    -- Uso de ID real
+    INSERT INTO reserva_hospital (id_tipo_sangre, id_hospital, cantidad) 
+    VALUES (sangre_o, seq_hospital.currval, 10.2);   -- Uso de ID real
+    INSERT INTO reserva_hospital (id_tipo_sangre, id_hospital, cantidad) 
+    VALUES (sangre_ab, seq_hospital.currval, 5.3);    -- Uso de ID real
+
+    -- Los traspasos
+    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
+    VALUES (seq_traspaso.nextval, 1, 1, 2, 20, TO_DATE('11/01/2025', 'DD/MM/YYYY'));  
+    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
+    VALUES (seq_traspaso.nextval, 2, 2, 1, 30, TO_DATE('11/01/2025', 'DD/MM/YYYY'));  
+    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
+    VALUES (seq_traspaso.nextval, 3, 3, 2, 10, TO_DATE('11/01/2025', 'DD/MM/YYYY'));  
+    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
+    VALUES (seq_traspaso.nextval, 4, 4, 3, 15, TO_DATE('11/01/2025', 'DD/MM/YYYY'));  
+
+    -- Inserciones de los donantes
+    INSERT INTO donante (nif, nombre, ape1, ape2, fecha_nacimiento, id_tipo_sangre, segundo_apellido) 
+    VALUES ('12345678A', 'Juan', 'Pérez', 'González', TO_DATE('1990/01/01', 'YYYY/MM/DD'), 1, 'Martínez');
+    INSERT INTO donante (nif, nombre, ape1, ape2, fecha_nacimiento, id_tipo_sangre, segundo_apellido) 
+    VALUES ('23456789B', 'Ana', 'Gómez', 'López', TO_DATE('1985/06/15', 'YYYY/MM/DD'), 2, 'Fernández');
+    INSERT INTO donante (nif, nombre, ape1, ape2, fecha_nacimiento, id_tipo_sangre, segundo_apellido) 
+    VALUES ('34567890C', 'Luis', 'Morales', 'Díaz', TO_DATE('1982/11/20', 'YYYY/MM/DD'), 3, 'Pérez');
+
+    DBMS_OUTPUT.PUT_LINE('Datos inicializados correctamente.');
+END;
+
+
+
+
 
 -- Procedimiento para realizar test de donación
 CREATE OR REPLACE PROCEDURE test_donaciones IS
@@ -309,7 +287,7 @@ BEGIN
 
   -- Prueba de donante inexistente
   BEGIN
-    realizarDonacion('99999999X', 0.4, 1);
+    realizarDonacion('99999999X', 0.4);  -- Solo 2 parámetros (NIF, cantidad)
   EXCEPTION
     WHEN OTHERS THEN
       DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
@@ -317,7 +295,7 @@ BEGIN
 
   -- Prueba de cantidad de donación inválida
   BEGIN
-    realizarDonacion('12345678A', 0.6, 1);  -- Cantidad > 0.45
+    realizarDonacion('12345678A', 0.6);  -- Cantidad > 0.45
   EXCEPTION
     WHEN OTHERS THEN
       DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
@@ -325,7 +303,7 @@ BEGIN
 
   -- Prueba de donación en menos de 15 días
   BEGIN
-    realizarDonacion('12345678A', 0.3, 1);  -- Ya donó hace menos de 15 días
+    realizarDonacion('12345678A', 0.3);  -- Ya donó hace menos de 15 días
   EXCEPTION
     WHEN OTHERS THEN
       DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
@@ -342,7 +320,6 @@ BEGIN
 
 END;
 /
-
 
 
 
