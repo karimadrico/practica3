@@ -261,11 +261,12 @@ BEGIN
 
     DBMS_OUTPUT.PUT_LINE('Datos inicializados correctamente.');
 END;
+/
 
 
 
 
-
+-- Procedimiento test_donaciones
 CREATE OR REPLACE PROCEDURE test_donaciones IS
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Iniciando test_donaciones...');
