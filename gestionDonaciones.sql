@@ -76,103 +76,130 @@ create table traspaso (
 );
 
 -- Procedimiento realizarTraspaso
-create or replace procedure realizarTraspaso (
-    m_hospital_origen hospital.id_hospital%type,
-    m_hospital_destino hospital.id_hospital%type,
-    m_tipo_sangre tipo_sangre.id_tipo_sangre%type,
-    m_cantidad reserva_hospital.cantidad%type
-) is
-    v_cantidad_origen reserva_hospital.cantidad%type;
-    v_cantidad_destino reserva_hospital.cantidad%type;
+CREATE OR REPLACE PROCEDURE realizarTraspaso (
+    m_hospital_origen     IN hospital.id_hospital%TYPE,
+    m_hospital_destino    IN hospital.id_hospital%TYPE,
+    m_tipo_sangre         IN tipo_sangre.id_tipo_sangre%TYPE,
+    m_cantidad            IN reserva_hospital.cantidad%TYPE
+) IS
+    v_existe NUMBER;
+    v_cantidad_origen reserva_hospital.cantidad%TYPE;
 BEGIN
-    -- Comprobar que hay suficiente sangre en el hospital de origen
-    select cantidad into v_cantidad_origen
-    from reserva_hospital
-    where id_hospital = m_hospital_origen
-    and id_tipo_sangre = m_tipo_sangre;
-    
-    -- Comprobar que hay capacidad en el hospital de destino
-    select cantidad into v_cantidad_destino
-    from reserva_hospital
-    where id_hospital = m_hospital_destino
-    and id_tipo_sangre = m_tipo_sangre;
-    
-    -- Verificar que la cantidad en el hospital de origen es suficiente
-    if v_cantidad_origen < m_cantidad then
-        raise_application_error(-20001, 'No hay suficiente sangre en el hospital de origen');
-    end if;
-    
-    -- Actualizar reservas en el hospital de origen
-    update reserva_hospital
-    set cantidad = cantidad - m_cantidad
-    where id_hospital = m_hospital_origen
-    and id_tipo_sangre = m_tipo_sangre;
-    
-    -- Actualizar reservas en el hospital de destino
-    update reserva_hospital
-    set cantidad = cantidad + m_cantidad
-    where id_hospital = m_hospital_destino
-    and id_tipo_sangre = m_tipo_sangre;
-    
+    -- Validaciones de existencia
+    SELECT COUNT(*) INTO v_existe FROM hospital WHERE id_hospital = m_hospital_origen;
+    IF v_existe = 0 THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Hospital Inexistente');
+    END IF;
+
+    SELECT COUNT(*) INTO v_existe FROM hospital WHERE id_hospital = m_hospital_destino;
+    IF v_existe = 0 THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Hospital Inexistente');
+    END IF;
+
+    SELECT COUNT(*) INTO v_existe FROM tipo_sangre WHERE id_tipo_sangre = m_tipo_sangre;
+    IF v_existe = 0 THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Tipo Sangre Inexistente');
+    END IF;
+
+    IF m_cantidad <= 0 THEN
+        RAISE_APPLICATION_ERROR(-20007, 'Valor de cantidad de traspaso por debajo de lo requerido');
+    END IF;
+
+    -- Verificar reserva suficiente en origen
+    BEGIN
+        SELECT cantidad INTO v_cantidad_origen FROM reserva_hospital 
+        WHERE id_hospital = m_hospital_origen AND id_tipo_sangre = m_tipo_sangre;
+        IF v_cantidad_origen < m_cantidad THEN
+            RAISE_APPLICATION_ERROR(-20004, 'Valor de reserva por debajo de lo requerido');
+        END IF;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20004, 'Valor de reserva por debajo de lo requerido');
+    END;
+
+    -- Insertar o actualizar reservas
+    MERGE INTO reserva_hospital r
+    USING (SELECT m_hospital_destino AS id_hospital, m_tipo_sangre AS id_tipo_sangre FROM dual) src
+    ON (r.id_hospital = src.id_hospital AND r.id_tipo_sangre = src.id_tipo_sangre)
+    WHEN MATCHED THEN
+        UPDATE SET cantidad = cantidad + m_cantidad
+    WHEN NOT MATCHED THEN
+        INSERT (id_hospital, id_tipo_sangre, cantidad) VALUES (m_hospital_destino, m_tipo_sangre, m_cantidad);
+
+    -- Actualizar reserva origen
+    UPDATE reserva_hospital 
+    SET cantidad = cantidad - m_cantidad
+    WHERE id_hospital = m_hospital_origen AND id_tipo_sangre = m_tipo_sangre;
+
     -- Registrar el traspaso
-    insert into traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
-    values (seq_traspaso.nextval, m_tipo_sangre, m_hospital_origen, m_hospital_destino, m_cantidad, sysdate);
-    
-    commit;
+    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
+    VALUES (seq_traspaso.NEXTVAL, m_tipo_sangre, m_hospital_origen, m_hospital_destino, m_cantidad, SYSDATE);
+
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
 END;
 /
 
 --Procedimiento realizar donacion
-create or replace procedure realizarDonacion(
-    p_nif in varchar2, 
-    p_cantidad in number, 
-    p_id_tipo_sangre in number
-) is
-    v_nif donante.nif%type;
-    v_id_tipo_sangre donante.id_tipo_sangre%type;
-    v_stock reserva_hospital.cantidad%type;
-begin
-    -- Verificar si el donante existe y obtener su tipo de sangre
-    begin
-        select nif, id_tipo_sangre into v_nif, v_id_tipo_sangre
-        from donante
-        where nif = p_nif;
-    exception
-        when no_data_found then
-            raise_application_error(-20003, 'El donante con NIF ' || p_nif || ' no existe.');
-        when others then
-            raise;
-    end;
+CREATE OR REPLACE PROCEDURE realizarDonacion (
+    m_NIF_donante IN donante.NIF%TYPE,
+    m_cantidad    IN donacion.cantidad%TYPE,
+    m_hospital    IN hospital.id_hospital%TYPE
+) IS
+    v_tipo_sangre donante.id_tipo_sangre%TYPE;
+    v_fecha_ultima donacion.fecha_donacion%TYPE;
+    v_existe NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_existe FROM donante WHERE NIF = m_NIF_donante;
+    IF v_existe = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Donante Inexistente');
+    END IF;
 
-    -- Verificar si el tipo de sangre del donante coincide con el proporcionado
-    if v_id_tipo_sangre != p_id_tipo_sangre then
-        raise_application_error(-20006, 'Tipo de sangre no coincide con el registrado para el donante.');
-    end if;
+    SELECT id_tipo_sangre INTO v_tipo_sangre FROM donante WHERE NIF = m_NIF_donante;
 
-    -- Verificar si hay suficiente sangre en la reserva
-    begin
-        select cantidad into v_stock
-        from reserva_hospital
-        where id_tipo_sangre = p_id_tipo_sangre
-        and cantidad >= p_cantidad;
-    exception
-        when no_data_found then
-            raise_application_error(-20004, 'No hay suficiente sangre de tipo ' || p_id_tipo_sangre || '.');
-        when others then
-            raise;
-    end;
+    SELECT COUNT(*) INTO v_existe FROM tipo_sangre WHERE id_tipo_sangre = v_tipo_sangre;
+    IF v_existe = 0 THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Tipo Sangre Inexistente');
+    END IF;
 
-    -- Insertar la donación (sin id_tipo_sangre, porque no existe esa columna)
-    insert into donacion (id_donacion, nif_donante, cantidad, fecha_donacion)
-    values (seq_donacion.nextval, p_nif, p_cantidad, trunc(sysdate));
+    SELECT COUNT(*) INTO v_existe FROM hospital WHERE id_hospital = m_hospital;
+    IF v_existe = 0 THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Hospital Inexistente');
+    END IF;
 
-    -- Actualizar la reserva de sangre
-    update reserva_hospital 
-    set cantidad = cantidad - p_cantidad
-    where id_tipo_sangre = p_id_tipo_sangre;
+    IF m_cantidad <= 0 OR m_cantidad > 0.45 THEN
+        RAISE_APPLICATION_ERROR(-20005, 'Valor de cantidad de donación incorrecto');
+    END IF;
 
-    commit;
-end;
+    BEGIN
+        SELECT MAX(fecha_donacion) INTO v_fecha_ultima FROM donacion WHERE nif_donante = m_NIF_donante;
+        IF v_fecha_ultima > SYSDATE - 15 THEN
+            RAISE_APPLICATION_ERROR(-20006, 'Donante excede el cupo de donación');
+        END IF;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN NULL;
+    END;
+
+    INSERT INTO donacion (id_donacion, nif_donante, cantidad, fecha_donacion)
+    VALUES (seq_donacion.NEXTVAL, m_NIF_donante, m_cantidad, SYSDATE);
+
+    MERGE INTO reserva_hospital r
+    USING (SELECT m_hospital AS id_hospital, v_tipo_sangre AS id_tipo_sangre FROM dual) src
+    ON (r.id_hospital = src.id_hospital AND r.id_tipo_sangre = src.id_tipo_sangre)
+    WHEN MATCHED THEN
+        UPDATE SET cantidad = cantidad + m_cantidad
+    WHEN NOT MATCHED THEN
+        INSERT (id_hospital, id_tipo_sangre, cantidad) VALUES (m_hospital, v_tipo_sangre, m_cantidad);
+
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
 /
 
 
@@ -269,46 +296,49 @@ end;
 -- Procedimiento para realizar test de donación
 create or replace procedure test_donaciones is
 begin
-    dbms_output.put_line('COMIENZO TESTS:');
-    dbms_output.put_line('----------------------------------------------------');
-    
-    -- Prueba caso DONANTE_INEXISTENTE
-    begin
-        inicializa_test;
-        realizarDonacion ('66666666L', 0.3, 1);
-        dbms_output.put_line('KO, no detecta DONANTE_INEXISTENTE');
-    exception
-        when others then
-            if sqlcode = -20003 then
-                dbms_output.put_line('OK, detecta DONANTE_INEXISTENTE: '||sqlerrm);
-            else
-                dbms_output.put_line('KO, No se espera el error: '||sqlcode || ' ' || sqlerrm);
-            end if;
-    end;
-    
-    -- Prueba caso no hay suficiente sangre
-    begin
-        realizarDonacion ('12345678A', 10.5, 1);
-        dbms_output.put_line('KO, No detecta error por sangre insuficiente');
-    exception
-        when others then
-            if sqlcode = -20004 then
-                dbms_output.put_line('OK, Detecta error por sangre insuficiente: ' || sqlerrm);
-            else
-                dbms_output.put_line('KO, No se espera el error: '||sqlcode || ' ' || sqlerrm);
-            end if;
-    end;
-    
-    -- Realiza donación correctamente
-    begin
-        realizarDonacion ('12345678A', 0.3, 1);
-        dbms_output.put_line('OK, donación correctamente realizada');
-    exception
-        when others then
-            dbms_output.put_line('KO, No se espera el error: '||sqlcode || ' ' || sqlerrm);
-    end;
-end;
-/
+  -- Prueba de hospital inexistente
+  begin
+    realizarTraspaso(999, 1, 1, 1);
+  exception
+    when others then
+      dbms_output.put_line('Excepción esperada: ' || sqlerrm);
+  end;
+
+  -- Prueba de donante inexistente
+  begin
+    realizarDonacion('99999999X', 0.4, 1);
+  exception
+    when others then
+      dbms_output.put_line('Excepción esperada: ' || sqlerrm);
+  end;
+
+  -- Prueba de cantidad de donación inválida
+  begin
+    realizarDonacion('12345678A', 0.5, 1);
+  exception
+    when others then
+      dbms_output.put_line('Excepción esperada: ' || sqlerrm);
+  end;
+
+  -- Prueba de donación después de 15 días
+  begin
+    realizarDonacion('12345678A', 0.4, 1);
+  exception
+    when others then
+      dbms_output.put_line('Excepción esperada: ' || sqlerrm);
+  end;
+
+  -- Prueba de traspaso válido
+  begin
+    realizarTraspaso(1, 2, 1, 0.2);
+    dbms_output.put_line('Traspaso realizado correctamente');
+  exception
+    when others then
+      dbms_output.put_line('Excepción inesperada: ' || sqlerrm);
+  end;
+end test_donaciones;
+
+
 
 
 
@@ -324,6 +354,37 @@ end;
 begin
    inicializa_test;
 end;
+
+
+-- Donación válida:
+EXEC realizarDonacion('12345678A', 0.3, 1);
+
+-- Donante inexistente:
+EXEC realizarDonacion('00000000Z', 0.3, 1);
+-- Esperado: Donante Inexistente (-20001)
+
+-- Hospital inexistente:
+EXEC realizarDonacion('12345678A', 0.3, 999);
+-- Esperado: Hospital Inexistente (-20003)
+
+-- Cantidad inválida:
+EXEC realizarDonacion('12345678A', 0.6, 1);
+-- Esperado: Valor de cantidad incorrecto (-20005)
+
+-- Donación < 15 días:
+EXEC realizarDonacion('12345678A', 0.3, 1);
+-- Esperado: Donante excede el cupo (-20006)
+
+-- Traspaso válido:
+EXEC realizarTraspaso(1, 2, 1, 0.3);
+
+-- Traspaso con hospital inexistente:
+EXEC realizarTraspaso(99, 2, 1, 0.3);
+-- Esperado: Hospital Inexistente (-20003)
+
+-- Traspaso con reserva insuficiente:
+EXEC realizarTraspaso(1, 2, 1, 100);
+-- Esperado: Reserva insuficiente (-20004)
 
 
 
