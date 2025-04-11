@@ -245,6 +245,7 @@ begin
     delete from tipo_sangre;
     delete from hospital;
     
+    
     insert into tipo_sangre values (seq_tipo_sangre.nextval, 'Tipo A');
     sangre_a := seq_tipo_sangre.currval;
     insert into tipo_sangre values (seq_tipo_sangre.nextval, 'Tipo B');
@@ -294,65 +295,70 @@ end;
 /
 
 -- Procedimiento para realizar test de donación
-create or replace procedure test_donaciones is
-begin
+CREATE OR REPLACE PROCEDURE test_donaciones IS
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Iniciando test_donaciones...');
+
   -- Prueba de hospital inexistente
-  begin
+  BEGIN
     realizarTraspaso(999, 1, 1, 1);
-  exception
-    when others then
-      dbms_output.put_line('Excepción esperada: ' || sqlerrm);
-  end;
+  EXCEPTION
+    WHEN OTHERS THEN
+      DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
+  END;
 
   -- Prueba de donante inexistente
-  begin
+  BEGIN
     realizarDonacion('99999999X', 0.4, 1);
-  exception
-    when others then
-      dbms_output.put_line('Excepción esperada: ' || sqlerrm);
-  end;
+  EXCEPTION
+    WHEN OTHERS THEN
+      DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
+  END;
 
   -- Prueba de cantidad de donación inválida
-  begin
-    realizarDonacion('12345678A', 0.5, 1);
-  exception
-    when others then
-      dbms_output.put_line('Excepción esperada: ' || sqlerrm);
-  end;
+  BEGIN
+    realizarDonacion('12345678A', 0.6, 1);  -- Cantidad > 0.45
+  EXCEPTION
+    WHEN OTHERS THEN
+      DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
+  END;
 
-  -- Prueba de donación después de 15 días
-  begin
-    realizarDonacion('12345678A', 0.4, 1);
-  exception
-    when others then
-      dbms_output.put_line('Excepción esperada: ' || sqlerrm);
-  end;
+  -- Prueba de donación en menos de 15 días
+  BEGIN
+    realizarDonacion('12345678A', 0.3, 1);  -- Ya donó hace menos de 15 días
+  EXCEPTION
+    WHEN OTHERS THEN
+      DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
+  END;
 
   -- Prueba de traspaso válido
-  begin
-    realizarTraspaso(1, 2, 1, 0.2);
-    dbms_output.put_line('Traspaso realizado correctamente');
-  exception
-    when others then
-      dbms_output.put_line('Excepción inesperada: ' || sqlerrm);
-  end;
-end test_donaciones;
+  BEGIN
+    realizarTraspaso(1, 2, 1, 0.3);
+    DBMS_OUTPUT.PUT_LINE('Traspaso realizado correctamente');
+  EXCEPTION
+    WHEN OTHERS THEN
+      DBMS_OUTPUT.PUT_LINE('Excepción inesperada: ' || SQLERRM);
+  END;
+
+END;
+/
 
 
 
 
-
-
-
-set serveroutput on;
-
-begin
-  test_donaciones;
-end;
-
+-- Primero
 
 begin
    inicializa_test;
+end;
+
+-- Despues 
+
+set serveroutput on;
+
+-- Finalmente
+begin
+  test_donaciones;
 end;
 
 
