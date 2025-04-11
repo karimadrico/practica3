@@ -144,51 +144,45 @@ END;
 /
 
 --Procedimiento realizar donacion
-CREATE OR REPLACE PROCEDURE realizarDonacion(
-    m_NIF_donante donacion.nif_donante%TYPE,
-    m_cantidad donacion.cantidad%TYPE
-) IS
-    v_existe NUMBER;
+CREATE OR REPLACE PROCEDURE realizarDonacion (
+    m_NIF_donante IN donante.NIF%TYPE,
+    m_cantidad IN donacion.cantidad%TYPE,
+    m_hospital IN hospital.id_hospital%TYPE
+)
+IS
     v_fecha_ultima_donacion DATE;
+    v_count INTEGER;  -- Declaración de la variable 'v_count'
 BEGIN
-    DBMS_OUTPUT.PUT_LINE('Iniciando realizarDonacion...');
-
-    -- Validar existencia del donante
-    SELECT COUNT(*) INTO v_existe FROM donante WHERE nif = m_NIF_donante;
-    DBMS_OUTPUT.PUT_LINE('Validación donante, encontrado: ' || v_existe);
-    IF v_existe = 0 THEN
-        DBMS_OUTPUT.PUT_LINE('Donante no encontrado: ' || m_NIF_donante);
+    -- Comprobar si el donante existe
+    SELECT COUNT(*) INTO v_count FROM donante WHERE NIF = m_NIF_donante;
+    IF v_count = 0 THEN
         RAISE_APPLICATION_ERROR(-20001, 'Donante Inexistente');
     END IF;
 
-    -- Validar cantidad > 0 y <= 0.45
-    DBMS_OUTPUT.PUT_LINE('Validando cantidad: ' || m_cantidad);
-    IF m_cantidad <= 0 OR m_cantidad > 0.45 THEN
-        DBMS_OUTPUT.PUT_LINE('Cantidad inválida');
-        RAISE_APPLICATION_ERROR(-20005, 'Cantidad inválida');
+    -- Validar la cantidad de donación
+    IF m_cantidad < 0 OR m_cantidad > 0.45 THEN
+        RAISE_APPLICATION_ERROR(-20005, 'Valor de cantidad de donación incorrecto');
     END IF;
 
-    -- Verificar última donación (mínimo 15 días entre donaciones)
-    BEGIN
-        SELECT MAX(fecha_donacion) INTO v_fecha_ultima_donacion
-        FROM donacion
-        WHERE nif_donante = m_NIF_donante;
+    -- Verificar si el donante ha donado recientemente
+    SELECT MAX(fecha_donacion) INTO v_fecha_ultima_donacion
+    FROM donacion
+    WHERE nif_donante = m_NIF_donante;
 
-        DBMS_OUTPUT.PUT_LINE('Última donación fue el: ' || TO_CHAR(v_fecha_ultima_donacion, 'DD/MM/YYYY'));
+    IF v_fecha_ultima_donacion IS NOT NULL AND v_fecha_ultima_donacion > (SYSDATE - 15) THEN
+        RAISE_APPLICATION_ERROR(-20006, 'Donante excede el cupo de donación');
+    END IF;
 
-        IF v_fecha_ultima_donacion IS NOT NULL AND v_fecha_ultima_donacion > SYSDATE - 15 THEN
-            DBMS_OUTPUT.PUT_LINE('Donación demasiado reciente');
-            RAISE_APPLICATION_ERROR(-20006, 'Donación demasiado reciente');
-        END IF;
-    EXCEPTION
-        WHEN NO_DATA_FOUND THEN
-            NULL; -- No hay donaciones previas
-    END;
-
-    -- Insertar donación si pasa todas las validaciones
+    -- Insertar la donación en la tabla de donaciones
     INSERT INTO donacion (id_donacion, nif_donante, cantidad, fecha_donacion)
-    VALUES (seq_donacion.NEXTVAL, m_NIF_donante, m_cantidad, SYSDATE);
-    DBMS_OUTPUT.PUT_LINE('Donación insertada correctamente.');
+    VALUES (SEQ_DONACION.NEXTVAL, m_NIF_donante, m_cantidad, SYSDATE);
+
+    -- Actualizar la reserva del hospital
+    UPDATE reserva_hospital
+    SET cantidad = cantidad + m_cantidad
+    WHERE id_hospital = m_hospital AND id_tipo_sangre = (SELECT id_tipo_sangre FROM donante WHERE NIF = m_NIF_donante);
+
+    COMMIT;
 END;
 
 
@@ -272,54 +266,59 @@ END;
 
 
 
--- Procedimiento para realizar test de donación
 CREATE OR REPLACE PROCEDURE test_donaciones IS
 BEGIN
   DBMS_OUTPUT.PUT_LINE('Iniciando test_donaciones...');
 
   -- Prueba de hospital inexistente
   BEGIN
-    realizarTraspaso(999, 1, 1, 1);
+    -- Aquí se supone que '999' es un hospital que no existe
+    realizarTraspaso(999, 1, 1, 1);  
   EXCEPTION
     WHEN OTHERS THEN
-      DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
+      DBMS_OUTPUT.PUT_LINE('Excepción esperada (hospital inexistente): ' || SQLERRM);
   END;
 
   -- Prueba de donante inexistente
   BEGIN
-    realizarDonacion('99999999X', 0.4);  -- Solo 2 parámetros (NIF, cantidad)
+    -- '99999999X' es un NIF que no existe en la tabla de donantes
+    realizarDonacion('99999999X', 0.4, 1);  -- Se agrega el hospital como tercer parámetro
   EXCEPTION
     WHEN OTHERS THEN
-      DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
+      DBMS_OUTPUT.PUT_LINE('Excepción esperada (donante inexistente): ' || SQLERRM);
   END;
 
   -- Prueba de cantidad de donación inválida
   BEGIN
-    realizarDonacion('12345678A', 0.6);  -- Cantidad > 0.45
+    -- '12345678A' es un NIF válido, pero la cantidad es mayor a 0.45, lo cual es inválido
+    realizarDonacion('12345678A', 0.6, 1);  -- Cantidad > 0.45
   EXCEPTION
     WHEN OTHERS THEN
-      DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
+      DBMS_OUTPUT.PUT_LINE('Excepción esperada (cantidad de donación inválida): ' || SQLERRM);
   END;
 
   -- Prueba de donación en menos de 15 días
   BEGIN
-    realizarDonacion('12345678A', 0.3);  -- Ya donó hace menos de 15 días
+    -- Suponiendo que '12345678A' ya ha donado hace menos de 15 días, intentamos otra donación
+    realizarDonacion('12345678A', 0.3, 1);  -- Ya donó hace menos de 15 días
   EXCEPTION
     WHEN OTHERS THEN
-      DBMS_OUTPUT.PUT_LINE('Excepción esperada: ' || SQLERRM);
+      DBMS_OUTPUT.PUT_LINE('Excepción esperada (donación en menos de 15 días): ' || SQLERRM);
   END;
 
   -- Prueba de traspaso válido
   BEGIN
+    -- Se realiza un traspaso correcto entre los hospitales 1 y 2, con el tipo de sangre 1 y 0.3 litros
     realizarTraspaso(1, 2, 1, 0.3);
     DBMS_OUTPUT.PUT_LINE('Traspaso realizado correctamente');
   EXCEPTION
     WHEN OTHERS THEN
-      DBMS_OUTPUT.PUT_LINE('Excepción inesperada: ' || SQLERRM);
+      DBMS_OUTPUT.PUT_LINE('Excepción inesperada (traspaso válido): ' || SQLERRM);
   END;
 
 END;
 /
+
 
 
 
@@ -338,36 +337,25 @@ begin
   test_donaciones;
 end;
 
-
--- Donación válida:
+-- Donación válida
 EXEC realizarDonacion('12345678A', 0.3, 1);
 
--- Donante inexistente:
+-- Donante inexistente
 EXEC realizarDonacion('00000000Z', 0.3, 1);
 -- Esperado: Donante Inexistente (-20001)
 
--- Hospital inexistente:
+-- Hospital inexistente
 EXEC realizarDonacion('12345678A', 0.3, 999);
 -- Esperado: Hospital Inexistente (-20003)
 
--- Cantidad inválida:
+-- Cantidad inválida
 EXEC realizarDonacion('12345678A', 0.6, 1);
 -- Esperado: Valor de cantidad incorrecto (-20005)
 
--- Donación < 15 días:
+-- Donación < 15 días
 EXEC realizarDonacion('12345678A', 0.3, 1);
 -- Esperado: Donante excede el cupo (-20006)
 
--- Traspaso válido:
-EXEC realizarTraspaso(1, 2, 1, 0.3);
-
--- Traspaso con hospital inexistente:
-EXEC realizarTraspaso(99, 2, 1, 0.3);
--- Esperado: Hospital Inexistente (-20003)
-
--- Traspaso con reserva insuficiente:
-EXEC realizarTraspaso(1, 2, 1, 100);
--- Esperado: Reserva insuficiente (-20004)
 
 
 
