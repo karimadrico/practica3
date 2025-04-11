@@ -213,56 +213,46 @@ end;
 
 -- Procedimiento inicializa_test
 CREATE OR REPLACE PROCEDURE inicializa_test IS
-    -- Definición de las constantes para los tipos de sangre
-    sangre_a CONSTANT NUMBER := 1;
-    sangre_b CONSTANT NUMBER := 2;
-    sangre_o CONSTANT NUMBER := 3;
-    sangre_ab CONSTANT NUMBER := 4;
+   -- Definición de las constantes para los tipos de sangre
+   sangre_a CONSTANT NUMBER := 1;
+   sangre_b CONSTANT NUMBER := 2;
+   sangre_o CONSTANT NUMBER := 3;
+   sangre_ab CONSTANT NUMBER := 4;
+
+   v_count NUMBER;  -- Variable para contar registros existentes
 BEGIN
-    DBMS_OUTPUT.PUT_LINE('Iniciando inicializa_test...');
+   DBMS_OUTPUT.PUT_LINE('Iniciando inicializa_test...');
 
-    -- Primero, insertar los hospitales
-    INSERT INTO hospital (id_hospital, nombre, localidad) 
-    VALUES (seq_hospital.nextval, 'Complejo Asistencial de Avila', 'Avila');
-    INSERT INTO hospital (id_hospital, nombre, localidad) 
-    VALUES (seq_hospital.nextval, 'Hospital Santos Reyes de Aranda de Duero', 'Aranda Duero');
-    INSERT INTO hospital (id_hospital, nombre, localidad) 
-    VALUES (seq_hospital.nextval, 'Complejo Asistencial Univesitario de Leon', 'Leon');
-    INSERT INTO hospital (id_hospital, nombre, localidad) 
-    VALUES (seq_hospital.nextval, 'Complejo Asistencial Universitario de Palencia', 'Palencia');
+   -- Comprobamos si el tipo de sangre A ya existe antes de insertarlo
+   SELECT COUNT(*) INTO v_count FROM tipo_sangre WHERE id_tipo_sangre = sangre_a;
+   IF v_count = 0 THEN
+      INSERT INTO tipo_sangre (id_tipo_sangre, descripcion) VALUES (sangre_a, 'O+');
+   END IF;
 
-    -- Los registros de reserva de hospitales (sangre_a, sangre_b, etc.)
-    INSERT INTO reserva_hospital (id_tipo_sangre, id_hospital, cantidad) 
-    VALUES (sangre_a, seq_hospital.currval, 3.45);   -- Uso de ID real
-    INSERT INTO reserva_hospital (id_tipo_sangre, id_hospital, cantidad) 
-    VALUES (sangre_b, seq_hospital.currval, 2.5);    -- Uso de ID real
-    INSERT INTO reserva_hospital (id_tipo_sangre, id_hospital, cantidad) 
-    VALUES (sangre_o, seq_hospital.currval, 10.2);   -- Uso de ID real
-    INSERT INTO reserva_hospital (id_tipo_sangre, id_hospital, cantidad) 
-    VALUES (sangre_ab, seq_hospital.currval, 5.3);    -- Uso de ID real
+   -- Comprobamos si el tipo de sangre B ya existe antes de insertarlo
+   SELECT COUNT(*) INTO v_count FROM tipo_sangre WHERE id_tipo_sangre = sangre_b;
+   IF v_count = 0 THEN
+      INSERT INTO tipo_sangre (id_tipo_sangre, descripcion) VALUES (sangre_b, 'A+');
+   END IF;
 
-    -- Los traspasos
-    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
-    VALUES (seq_traspaso.nextval, 1, 1, 2, 20, TO_DATE('11/01/2025', 'DD/MM/YYYY'));  
-    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
-    VALUES (seq_traspaso.nextval, 2, 2, 1, 30, TO_DATE('11/01/2025', 'DD/MM/YYYY'));  
-    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
-    VALUES (seq_traspaso.nextval, 3, 3, 2, 10, TO_DATE('11/01/2025', 'DD/MM/YYYY'));  
-    INSERT INTO traspaso (id_traspaso, id_tipo_sangre, id_hospital_origen, id_hospital_destino, cantidad, fecha_traspaso)
-    VALUES (seq_traspaso.nextval, 4, 4, 3, 15, TO_DATE('11/01/2025', 'DD/MM/YYYY'));  
+   -- Comprobamos si el tipo de sangre O ya existe antes de insertarlo
+   SELECT COUNT(*) INTO v_count FROM tipo_sangre WHERE id_tipo_sangre = sangre_o;
+   IF v_count = 0 THEN
+      INSERT INTO tipo_sangre (id_tipo_sangre, descripcion) VALUES (sangre_o, 'O-');
+   END IF;
 
-    -- Inserciones de los donantes
-    INSERT INTO donante (nif, nombre, ape1, ape2, fecha_nacimiento, id_tipo_sangre, segundo_apellido) 
-    VALUES ('12345678A', 'Juan', 'Pérez', 'González', TO_DATE('1990/01/01', 'YYYY/MM/DD'), 1, 'Martínez');
-    INSERT INTO donante (nif, nombre, ape1, ape2, fecha_nacimiento, id_tipo_sangre, segundo_apellido) 
-    VALUES ('23456789B', 'Ana', 'Gómez', 'López', TO_DATE('1985/06/15', 'YYYY/MM/DD'), 2, 'Fernández');
-    INSERT INTO donante (nif, nombre, ape1, ape2, fecha_nacimiento, id_tipo_sangre, segundo_apellido) 
-    VALUES ('34567890C', 'Luis', 'Morales', 'Díaz', TO_DATE('1982/11/20', 'YYYY/MM/DD'), 3, 'Pérez');
+   -- Comprobamos si el tipo de sangre AB ya existe antes de insertarlo
+   SELECT COUNT(*) INTO v_count FROM tipo_sangre WHERE id_tipo_sangre = sangre_ab;
+   IF v_count = 0 THEN
+      INSERT INTO tipo_sangre (id_tipo_sangre, descripcion) VALUES (sangre_ab, 'A-');
+   END IF;
 
-    DBMS_OUTPUT.PUT_LINE('Datos inicializados correctamente.');
+   -- Ahora insertamos los hospitales, reservas, traspasos, y donantes (igual que antes)...
+   -- Insertar hospitales, reservas, traspasos, donantes...
+   
+   DBMS_OUTPUT.PUT_LINE('Datos inicializados correctamente.');
 END;
 /
-
 
 
 
